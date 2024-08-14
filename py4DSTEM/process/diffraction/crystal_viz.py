@@ -1503,6 +1503,9 @@ def plot_orientation_maps(
         ax_z.axis("off")
 
     # Legend
+    if show_legend:
+        ax_l.imshow(rgb_leg)
+ 
 
 
     # # Triangulate faces
