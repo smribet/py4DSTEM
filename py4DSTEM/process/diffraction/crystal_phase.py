@@ -1302,6 +1302,7 @@ class CrystalPhase:
                     sigma=sigma,
                     mode="nearest",
                 )
+        self.phase_sig = phase_sig
 
         # find highest correlation score for each crystal and match index
         for a0 in range(self.num_crystals):
