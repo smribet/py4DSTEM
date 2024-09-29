@@ -40,6 +40,7 @@ def orientation_plan(
     figsize: Union[list, tuple, np.ndarray] = (6, 6),
     CUDA: bool = False,
     progress_bar: bool = True,
+    additional_rotation=None,
 ):
     """
     Calculate the rotation basis arrays for an SO(3) rotation correlogram.
@@ -754,6 +755,10 @@ def orientation_plan(
             unit=" zone axes",
             disable=not progress_bar,
         ):
+            if additional_rotation is not None:
+                self.orientation_rotation_matrices = (
+                    self.orientation_rotation_matrices @ additional_rotation
+                )
             # reciprocal lattice spots and excitation errors
             g = self.orientation_rotation_matrices[a0, :, :].T @ self.g_vec_all
             # if precession_angle_degrees is None:
