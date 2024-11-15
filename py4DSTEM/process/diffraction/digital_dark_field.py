@@ -496,7 +496,8 @@ def DDFimage(points_array, aperture_positions, Rshape=None, tol=1):
 
 def radial_filtered_array(points_array_w_rphi, radius, tol=1):
     """
-    Calculates a Digital Dark Field image from a list of detected diffraction peak positions in a points_array matching a specific qr radius, within a defined matching tolerance
+    Calculates a Filtered points array from a list of detected diffraction peak positions in a points_array 
+    matching a specific qr radius, within a defined matching tolerance
 
     Parameters
     ----------
@@ -578,7 +579,8 @@ def DDF_radial_image(points_array_w_rphi, radius, Rshape, tol=1):
 
 def DDFradialazimuthimage(points_array_w_rphi, radius, phi0, phi1, Rshape, tol=1):
     """
-    Calculates a Digital Dark Field image from a list of detected diffraction peak positions in a points_array matching a specific qr radius, within a defined matching tolerance
+    Calculates a Digital Dark Field image from a list of detected diffraction peak positions in a points_array 
+    matching a specific qr radius, within a defined matching tolerance, and only within a defined azimuthal range
 
     Parameters
     ----------
@@ -616,7 +618,7 @@ def DDFradialazimuthimage(points_array_w_rphi, radius, phi0, phi1, Rshape, tol=1
         np.where(
             np.logical_or(
                 radial_filtered_points_array[:, 6] < phi0,
-                radial_filtered_points_array[:, 6] > phi1,
+                radial_filtered_points_array[:, 6] >= phi1,
             )
         ),
         axis=0,
