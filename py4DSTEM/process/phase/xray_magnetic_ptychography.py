@@ -892,7 +892,6 @@ class XRayMagneticPtychography(
 
         match (self._recon_mode, self._active_measurement_index):
             case (0, 0) | (1, 0):  # reverse
-
                 magnetic_conj = xp.exp(1.0j * xp.conj(object_patches[1]))
 
                 probe_magnetic_abs = xp.abs(shifted_probes * magnetic_conj)
@@ -930,7 +929,6 @@ class XRayMagneticPtychography(
                 )
 
                 if not fix_probe:
-
                     electrostatic_magnetic_abs = xp.abs(
                         electrostatic_conj * magnetic_conj
                     )
@@ -962,7 +960,6 @@ class XRayMagneticPtychography(
                     )
 
             case (0, 1) | (1, 2) | (2, 1):  # forward
-
                 magnetic_conj = xp.exp(-1.0j * xp.conj(object_patches[1]))
 
                 probe_magnetic_abs = xp.abs(shifted_probes * magnetic_conj)
@@ -992,7 +989,6 @@ class XRayMagneticPtychography(
                 )
 
                 if not fix_probe:
-
                     electrostatic_magnetic_abs = xp.abs(
                         electrostatic_conj * magnetic_conj
                     )
@@ -1024,7 +1020,6 @@ class XRayMagneticPtychography(
                     )
 
             case (1, 1) | (2, 0):  # neutral
-
                 probe_abs = xp.abs(shifted_probes)
                 probe_normalization = self._sum_overlapping_patches_bincounts(
                     probe_abs**2,
@@ -1047,7 +1042,6 @@ class XRayMagneticPtychography(
                 )
 
                 if not fix_probe:
-
                     electrostatic_abs = xp.abs(electrostatic_conj)
                     electrostatic_normalization = xp.sum(
                         electrostatic_abs**2,
@@ -1482,20 +1476,20 @@ class XRayMagneticPtychography(
 
                     # position correction
                     if not fix_positions and a0 > 0:
-                        self._positions_px_all[batch_indices] = (
-                            self._position_correction(
-                                self._object,
-                                vectorized_patch_indices_row,
-                                vectorized_patch_indices_col,
-                                shifted_probes,
-                                overlap,
-                                amplitudes_device,
-                                positions_px,
-                                positions_px_initial,
-                                positions_step_size,
-                                max_position_update_distance,
-                                max_position_total_distance,
-                            )
+                        self._positions_px_all[
+                            batch_indices
+                        ] = self._position_correction(
+                            self._object,
+                            vectorized_patch_indices_row,
+                            vectorized_patch_indices_col,
+                            shifted_probes,
+                            overlap,
+                            amplitudes_device,
+                            positions_px,
+                            positions_px_initial,
+                            positions_step_size,
+                            max_position_update_distance,
+                            max_position_total_distance,
                         )
 
                     measurement_error += batch_error
