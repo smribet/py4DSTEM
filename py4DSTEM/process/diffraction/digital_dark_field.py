@@ -482,7 +482,7 @@ def DDFimage(points_array, aperture_positions, Rshape=None, tol=1):
         aperture_position = aperture_positions[aperture_index]
         intensities = np.vstack(
             (
-                points_array[:, 2:].T,
+                points_array[:, 2:5].T,
                 pointlist_differences(aperture_position, points_array),
             )
         ).T
