@@ -11,11 +11,10 @@ def read_arina(
     mem="RAM",
     binfactor: int = 1,
     dtype_bin: float = None,
-    fix_transpose = False,
+    fix_transpose=False,
     flatfield: np.ndarray = None,
     median_filter_masked_pixels_array: np.ndarray = None,
     median_filter_masked_pixels_kernel: int = 4,
-
 ):
     """
     File reader for arina 4D-STEM datasets
@@ -30,7 +29,7 @@ def read_arina(
         binfactor (int): Diffraction space binning factor for bin-on-load.
         dtype_bin(float): specify datatype for bin on load if need something
             other than uint16
-        fix_transpose: bool 
+        fix_transpose: bool
             if True, flips data on load to remove transpose (only necessary for old
             Arina files)
         flatfield (np.ndarray):
@@ -57,7 +56,7 @@ def read_arina(
     width = width // binfactor
     height = height // binfactor
 
-    if scan_width is None: 
+    if scan_width is None:
         scan_width = int(np.sqrt(nimages))
 
     assert (
@@ -101,16 +100,19 @@ def read_arina(
 
     scan_height = int(nimages / scan_width)
 
-    if fix_transpose: 
+    if fix_transpose:
         datacube = DataCube(
             np.flip(
                 array_3D.reshape(
-                    scan_width, scan_height, array_3D.data.shape[1], array_3D.data.shape[2]
+                    scan_width,
+                    scan_height,
+                    array_3D.data.shape[1],
+                    array_3D.data.shape[2],
                 ),
                 0,
             )
         )
-    else: 
+    else:
         datacube = DataCube(
             array_3D.reshape(
                 scan_width, scan_height, array_3D.data.shape[1], array_3D.data.shape[2]
@@ -121,6 +123,15 @@ def read_arina(
         datacube = datacube.median_filter_masked_pixels(
             median_filter_masked_pixels_array, median_filter_masked_pixels_kernel
         )
+
+    try:
+        with h5py.File(f"{filename[:-10]}.h5", "r") as f:
+            pixel_size = f["STEM Metadata"].attrs["Pixel Size"][0]
+        datacube.calibration.set_R_pixel_size(pixel_size * 10)
+        datacube.calibration.set_R_pixel_units("A")
+
+    except:
+        pass
 
     return datacube
 
