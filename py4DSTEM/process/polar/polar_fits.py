@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 # from scipy.optimize import leastsq
 from scipy.optimize import curve_fit
+from scipy.ndimage import gaussian_filter
 from emdfile import tqdmnd
 
 
@@ -15,6 +16,7 @@ def fit_amorphous_ring(
     mask_dp=None,
     show_fit_mask=False,
     fit_all_images=False,
+    gaussian_filter_sigma=None,
     maxfev=None,
     robust=False,
     robust_steps=3,
@@ -51,6 +53,8 @@ def fit_amorphous_ring(
         Set to true to preview the fitting mask and initial guess for the ellipse params
     fit_all_images: bool
         Fit the elliptic parameters to all images
+    gaussian_filter_sigma: float
+        Standard deviation for Gaussian kernel in pixels.
     maxfev: int
         Max number of fitting evaluations for curve_fit.
     robust: bool
@@ -83,10 +87,13 @@ def fit_amorphous_ring(
 
     # If passing in a DataCube, use mean diffraction pattern for initial guess
     if im is None:
-        im = datacube.get_dp_mean()
+        im = datacube.get_dp_mean().data
         if progress_bar is None:
             progress_bar = True
 
+    if gaussian_filter_sigma is not None: 
+        im = gaussian_filter(im, gaussian_filter_sigma)
+    
     # Default values
     if center is None:
         center = np.array(((im.shape[0] - 1) / 2, (im.shape[1] - 1) / 2))
@@ -250,43 +257,45 @@ def fit_amorphous_ring(
         # Scale intensity coefficients
         coefs[5:8] *= int_mean
 
-        # Perform the fit on each individual diffration pattern
-        if fit_all_images:
-            coefs_all = np.zeros((datacube.shape[0], datacube.shape[1], coefs.size))
+    # Perform the fit on each individual diffration pattern
+    if fit_all_images:
+        coefs_all = np.zeros((datacube.shape[0], datacube.shape[1], len(coefs)))
 
-            for rx, ry in tqdmnd(
-                datacube.shape[0],
-                datacube.shape[1],
-                desc="Radial statistics",
-                unit=" probe positions",
-                disable=not progress_bar,
-            ):
-                vals = datacube.data[rx, ry][mask]
-                int_mean = np.mean(vals)
+        for rx, ry in tqdmnd(
+            datacube.shape[0],
+            datacube.shape[1],
+            desc="Radial statistics",
+            unit=" probe positions",
+            disable=not progress_bar,
+        ):
+            vals = datacube.data[rx, ry][mask]
+            if gaussian_filter_sigma is not None: 
+                vals = gaussian_filter(vals, gaussian_filter_sigma)
+            int_mean = np.mean(vals)
 
-                if maxfev is None:
-                    coefs_single = curve_fit(
-                        amorphous_model,
-                        basis,
-                        vals / int_mean,
-                        p0=coefs,
-                        xtol=1e-8,
-                        bounds=(lb, ub),
-                    )[0]
-                else:
-                    coefs_single = curve_fit(
-                        amorphous_model,
-                        basis,
-                        vals / int_mean,
-                        p0=coefs,
-                        xtol=1e-8,
-                        bounds=(lb, ub),
-                        maxfev=maxfev,
-                    )[0]
-                coefs_single[4] = np.mod(coefs_single[4], 2 * np.pi)
-                coefs_single[5:8] *= int_mean
+            if maxfev is None:
+                coefs_single = curve_fit(
+                    amorphous_model,
+                    basis,
+                    vals / int_mean,
+                    p0=coefs,
+                    xtol=1e-8,
+                    bounds=(lb, ub),
+                )[0]
+            else:
+                coefs_single = curve_fit(
+                    amorphous_model,
+                    basis,
+                    vals / int_mean,
+                    p0=coefs,
+                    xtol=1e-8,
+                    bounds=(lb, ub),
+                    maxfev=maxfev,
+                )[0]
+            coefs_single[4] = np.mod(coefs_single[4], 2 * np.pi)
+            coefs_single[5:8] *= int_mean
 
-                coefs_all[rx, ry] = coefs_single
+            coefs_all[rx, ry] = coefs_single
 
     if verbose:
         print("x0 = " + str(np.round(coefs[0], 3)) + " px")
