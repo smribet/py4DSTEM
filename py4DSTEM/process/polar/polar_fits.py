@@ -738,8 +738,25 @@ def _calc_strain(transformation_matrix, transformation_matrix_ref):
 def calculate_amorphous_strain(
     params_all,
     ref_region_mask=None,
-    progress_bar=True,
+    progress_bar=False,
 ):
+    """
+    Calculate strain from amorphous rings
+
+    Parameters
+    --------
+    params_all: np.array
+        3D array with elliptical parameters for each probe position.
+    ref_region_mask: np.array ("bool")
+        Region to use as reference for strain. If None, uses mean of all probe positions.
+
+
+    Returns
+    --------
+    strain_all: np.array
+        3D array with exx, eyy, and exy for each probe position.
+
+    """
 
     transformation_matrix_all = np.zeros(
         (params_all.shape[0], params_all.shape[1], 2, 2)
