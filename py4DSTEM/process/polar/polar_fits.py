@@ -25,6 +25,7 @@ def fit_amorphous_ring(
     plot_log_scale=False,
     plot_int_scale=(-3, 3),
     figsize=(8, 8),
+    figax=None,
     return_all_coefs=True,
 ):
     """
@@ -72,6 +73,8 @@ def fit_amorphous_ring(
         Min and max plotting range in standard deviations of image intensity
     figsize: tuple, list, np.array (optional)
         Figure size for plots
+    figax: tuple (fig, ax)
+        axes for plotting figure
     return_all_coefs: bool
         Set to True to return the 11 parameter fit, rather than the 5 parameter ellipse
 
@@ -188,7 +191,10 @@ def fit_amorphous_ring(
             )
         im_plot[:, :, 0] *= 1 - mask
 
-        fig, ax = plt.subplots(figsize=figsize)
+        if figax is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig, ax = figax
         ax.imshow(im_plot)
 
     else:
@@ -264,6 +270,7 @@ def fit_amorphous_ring(
             plot_log_scale=plot_log_scale,
             plot_int_scale=plot_int_scale,
             figsize=figsize,
+            figax=figax,
         )
 
     # Return fit parameters
@@ -292,10 +299,71 @@ def fit_amorphous_ring_all(
     plot_int_scale=(-3, 3),
     figsize=(8, 8),
     return_all_coefs=True,
-    progress_bar=None,
+    progress_bar=True,
     seed_with_mean_dp=True,
     distributed=False,
 ):
+    """
+    Fit an amorphous halo with a two-sided Gaussian model, plus a background
+    Gaussian function for all patterns in a datacube
+
+    Parameters
+    --------
+    im: np.array
+        2D image array to perform fitting on
+    datacube: py4DSTEM.DataCube
+        datacube to perform the fitting on
+    center: np.array
+        (x,y) center coordinates for fitting mask. If not specified
+        by the user, we will assume the center coordinate is (im.shape-1)/2.
+        Can also be a tuple of arrays the size of real space if the center shifts
+        across the diffraction pattern.
+    radial_range: np.array
+        (radius_inner, radius_outer) radial range to perform fitting over.
+        If not specified by the user, we will assume (im.shape[0]/4,im.shape[0]/2).
+    coefs: np.array (optional)
+        Array containing initial fitting coefficients for the amorphous fit.
+    mask_dp: np.array
+        Dark field mask for fitting, in addition to the radial range specified above.
+    show_fit_mask: bool
+        Set to true to preview the fitting mask and initial guess for the ellipse params
+    fit_all_images: bool
+        Fit the elliptic parameters to all images
+    gaussian_filter_sigma: float
+        Standard deviation for Gaussian kernel in pixels.
+    maxfev: int
+        Max number of fitting evaluations for curve_fit.
+    robust: bool
+        Set to True to use robust fitting.
+    robust_steps: int
+        Number of robust fitting steps.
+    robust_thresh: float
+        Threshold for relative errors for outlier detection. Setting to 1.0 means all points beyond
+        one standard deviation of the median error will be excluded from the next fit.
+    verbose: bool
+        Print fit results
+    plot_result: bool
+        Plot the result of the fitting
+    plot_log_scale: bool
+        Plot logarithmic image intensities
+    plot_int_scale: tuple of 2 values
+        Min and max plotting range in standard deviations of image intensity
+    figsize: tuple, list, np.array (optional)
+        Figure size for plots
+    return_all_coefs: bool
+        Set to True to return the 11 parameter fit, rather than the 5 parameter ellipse
+    seed_with_dp_mean: bool
+        If True, performs inital fit on mean dataset and seeds each with mean parameters
+    distributed: bool
+        If True, runs parallelized with mpire
+
+    Returns
+    --------
+    params_ellipse: np.array
+        5 parameter elliptic fit coefficients
+    params_ellipse_fit: np.array (optional)
+        11 parameter elliptic fit coefficients
+    """
 
     from py4DSTEM.process.polar import fit_amorphous_ring
 
@@ -444,6 +512,7 @@ def plot_amorphous_ring(
     plot_log_scale=True,
     plot_int_scale=(-3, 3),
     figsize=(8, 8),
+    figax=None,
 ):
     """
     Fit an amorphous halo with a two-sided Gaussian model, plus a background
@@ -529,7 +598,10 @@ def plot_amorphous_ring(
     # vmin = vals_mean -
 
     # plotting
-    fig, ax = plt.subplots(figsize=figsize)
+    if figax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig, ax = figax
     ax.imshow(
         im_plot,
         vmin=0,
