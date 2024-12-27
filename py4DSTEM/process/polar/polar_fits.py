@@ -478,7 +478,7 @@ def fit_amorphous_ring_all(
                     "robust_thresh": robust_thresh,
                     "verbose": False,
                     "plot_result": False,
-                    "return_all_coef": True,
+                    "return_all_coefs": True,
                 },
             )
             for rx in range(datacube.shape[0])
@@ -686,3 +686,90 @@ def amorphous_model(basis, *coefs):
     int_model[sub] += int12 * np.exp(dr2[sub] / (-2 * sigma2**2))
 
     return int_model
+
+
+def _calc_transform(params):
+    if params[2] < params[3]:
+        a = params[3]
+        b = params[2]
+        theta = params[4] + np.pi / 2
+    else:
+        a = params[2]
+        b = params[3]
+        theta = params[4]
+
+    # coefs
+    Aprime = a**2 * (np.sin(theta)) ** 2 + b**2 * (np.cos(theta)) ** 2
+    Bprime = 2 * (a**2 - b**2) * np.sin(theta) * np.cos(theta)
+    Cprime = a**2 * (np.cos(theta)) ** 2 + b**2 * (np.sin(theta)) ** 2
+
+    m_meas = np.array(
+        (
+            (Aprime, Bprime / 2),
+            (Bprime / 2, Cprime),
+        )
+    )
+
+    e_vals, e_vects = np.linalg.eig(m_meas)
+    phi = np.arctan2(e_vects[1, 0], e_vects[0, 0])
+
+    # rotation matrix
+    rot_mat = np.array(((np.cos(phi), -np.sin(phi)), (np.sin(phi), np.cos(phi))))
+
+    m_ref = np.diag(np.sqrt(e_vals))
+
+    transformation_matrix = rot_mat @ m_ref @ rot_mat.T
+
+    return transformation_matrix
+
+
+def _calc_strain(transformation_matrix, transformation_matrix_ref):
+
+    transformation_matrix = transformation_matrix @ np.linalg.inv(
+        transformation_matrix_ref
+    )
+    exx_fit = transformation_matrix[0, 0] - 1
+    eyy_fit = transformation_matrix[1, 1] - 1
+    exy_fit = 0.5 * (transformation_matrix[0, 1] + transformation_matrix[1, 0])
+
+    return exx_fit, eyy_fit, exy_fit
+
+
+def calculate_amorphous_strain(
+    params_all,
+    ref_region_mask=None,
+    progress_bar=True,
+):
+
+    transformation_matrix_all = np.zeros(
+        (params_all.shape[0], params_all.shape[1], 2, 2)
+    )
+
+    for rx, ry in tqdmnd(
+        params_all.shape[0],
+        params_all.shape[1],
+        desc="transformation",
+        unit="probe positions",
+        disable=not progress_bar,
+    ):
+        transformation_matrix_all[rx, ry, :, :] = _calc_transform(params_all[rx, ry, :])
+
+    if ref_region_mask is None:
+        ref_region_mask = np.ones((params_all.shape[0:2]), dtype="bool")
+
+    transformation_matrix_ref = transformation_matrix_all[ref_region_mask].mean(0)
+
+    strain_all = np.zeros((params_all.shape[0], params_all.shape[1], 3))
+
+    for rx, ry in tqdmnd(
+        params_all.shape[0],
+        params_all.shape[1],
+        desc="strain",
+        unit="probe positions",
+        disable=not progress_bar,
+    ):
+        strain_all[rx, ry] = _calc_strain(
+            transformation_matrix_all[rx, ry], transformation_matrix_ref
+        )
+
+    return strain_all
