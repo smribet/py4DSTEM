@@ -9,7 +9,6 @@ from emdfile import tqdmnd
 
 def fit_amorphous_ring(
     im=None,
-    datacube=None,
     center=None,
     radial_range=None,
     coefs=None,
@@ -27,7 +26,6 @@ def fit_amorphous_ring(
     plot_int_scale=(-3, 3),
     figsize=(8, 8),
     return_all_coefs=True,
-    progress_bar=None,
 ):
     """
     Fit an amorphous halo with a two-sided Gaussian model, plus a background
@@ -85,15 +83,9 @@ def fit_amorphous_ring(
         11 parameter elliptic fit coefficients
     """
 
-    # If passing in a DataCube, use mean diffraction pattern for initial guess
-    if im is None:
-        im = datacube.get_dp_mean().data
-        if progress_bar is None:
-            progress_bar = True
-
-    if gaussian_filter_sigma is not None: 
+    if gaussian_filter_sigma is not None:
         im = gaussian_filter(im, gaussian_filter_sigma)
-    
+
     # Default values
     if center is None:
         center = np.array(((im.shape[0] - 1) / 2, (im.shape[1] - 1) / 2))
@@ -257,46 +249,6 @@ def fit_amorphous_ring(
         # Scale intensity coefficients
         coefs[5:8] *= int_mean
 
-    # Perform the fit on each individual diffration pattern
-    if fit_all_images:
-        coefs_all = np.zeros((datacube.shape[0], datacube.shape[1], len(coefs)))
-
-        for rx, ry in tqdmnd(
-            datacube.shape[0],
-            datacube.shape[1],
-            desc="Radial statistics",
-            unit=" probe positions",
-            disable=not progress_bar,
-        ):
-            vals = datacube.data[rx, ry][mask]
-            if gaussian_filter_sigma is not None: 
-                vals = gaussian_filter(vals, gaussian_filter_sigma)
-            int_mean = np.mean(vals)
-
-            if maxfev is None:
-                coefs_single = curve_fit(
-                    amorphous_model,
-                    basis,
-                    vals / int_mean,
-                    p0=coefs,
-                    xtol=1e-8,
-                    bounds=(lb, ub),
-                )[0]
-            else:
-                coefs_single = curve_fit(
-                    amorphous_model,
-                    basis,
-                    vals / int_mean,
-                    p0=coefs,
-                    xtol=1e-8,
-                    bounds=(lb, ub),
-                    maxfev=maxfev,
-                )[0]
-            coefs_single[4] = np.mod(coefs_single[4], 2 * np.pi)
-            coefs_single[5:8] *= int_mean
-
-            coefs_all[rx, ry] = coefs_single
-
     if verbose:
         print("x0 = " + str(np.round(coefs[0], 3)) + " px")
         print("y0 = " + str(np.round(coefs[1], 3)) + " px")
@@ -316,15 +268,173 @@ def fit_amorphous_ring(
 
     # Return fit parameters
     if return_all_coefs:
-        if fit_all_images:
-            return coefs_all
-        else:
-            return coefs
+        return coefs
     else:
-        if fit_all_images:
-            return coefs_all[:, :, :5]
-        else:
-            return coefs[:5]
+        return coefs[:5]
+
+
+def fit_amorphous_ring_all(
+    datacube=None,
+    center=None,
+    radial_range=None,
+    coefs=None,
+    mask_dp=None,
+    show_fit_mask=False,
+    fit_all_images=False,
+    gaussian_filter_sigma=None,
+    maxfev=None,
+    robust=False,
+    robust_steps=3,
+    robust_thresh=1.0,
+    verbose=False,
+    plot_result=True,
+    plot_log_scale=False,
+    plot_int_scale=(-3, 3),
+    figsize=(8, 8),
+    return_all_coefs=True,
+    progress_bar=None,
+    seed_with_mean_dp=True,
+    distributed=False,
+):
+
+    from py4DSTEM.process.polar import fit_amorphous_ring
+
+    coefs_all = np.zeros((datacube.shape[0], datacube.shape[1], 11))
+
+    dp_mean = datacube.data.mean((0, 1))
+
+    if center[0] is np.ndarray:
+        center_all = center
+        center_mean = (center_all[0].mean(), center_all[1].mean())
+
+    else:
+        center_all = (
+            center[0] * np.ones(datacube.shape[0:2]),
+            center[1] * np.ones(datacube.shape[0:2]),
+        )
+        center_mean = center
+
+    if seed_with_mean_dp:
+        coefs_mean = fit_amorphous_ring(
+            im=dp_mean,
+            center=center_mean,
+            radial_range=radial_range,
+            coefs=coefs,
+            mask_dp=mask_dp,
+            show_fit_mask=show_fit_mask,
+            gaussian_filter_sigma=gaussian_filter_sigma,
+            maxfev=maxfev,
+            robust=robust,
+            robust_steps=robust_steps,
+            robust_thresh=robust_thresh,
+            verbose=verbose,
+            plot_result=plot_result,
+            plot_log_scale=plot_log_scale,
+            plot_int_scale=plot_int_scale,
+            figsize=figsize,
+            return_all_coefs=True,
+        )
+
+    else:
+        coefs_mean = None
+
+    if distributed is False:
+        for rx, ry in tqdmnd(
+            datacube.shape[0],
+            datacube.shape[1],
+            desc="Radial statistics",
+            unit=" probe positions",
+            disable=not progress_bar,
+        ):
+            if seed_with_mean_dp:
+                coefs_mean[0] = center_all[0][rx, ry]
+                coefs_mean[1] = center_all[1][rx, ry]
+
+            try:
+                coefs_single = fit_amorphous_ring(
+                    im=datacube.data[rx, ry],
+                    center=(center_all[0][rx, ry], center_all[1][rx, ry]),
+                    radial_range=radial_range,
+                    coefs=coefs_mean,
+                    mask_dp=mask_dp,
+                    show_fit_mask=False,
+                    gaussian_filter_sigma=gaussian_filter_sigma,
+                    maxfev=maxfev,
+                    robust=robust,
+                    robust_steps=robust_steps,
+                    robust_thresh=robust_thresh,
+                    verbose=False,
+                    plot_result=False,
+                    return_all_coefs=True,
+                )
+            except:
+                coefs_single = 0
+            coefs_all[rx, ry] = coefs_single
+    else:
+        from mpire import WorkerPool, cpu_count
+        from threadpoolctl import threadpool_limits
+
+        threads_per_job = 1
+
+        def f(args):
+            with threadpool_limits(limits=threads_per_job):
+                return _fig_amorphous_ring(**args)
+
+        def _fig_amorphous_ring(rx, ry, seed_with_mean_dp, coefs_mean, **kwargs):
+            if seed_with_mean_dp:
+                coefs_mean[0] = center_all[0][rx, ry]
+                coefs_mean[1] = center_all[1][rx, ry]
+            try:
+                coefs_single = fit_amorphous_ring(**kwargs)
+            except:
+                coefs_single = 0
+            return rx, ry, coefs_single
+
+        inputs = [
+            (
+                {
+                    "rx": rx,
+                    "ry": ry,
+                    "seed_with_mean_dp": seed_with_mean_dp,
+                    "coefs_mean": coefs_mean,
+                    "im": datacube.data[rx, ry],
+                    "center": (center_all[0][rx, ry], center_all[1][rx, ry]),
+                    "radial_range": radial_range,
+                    "coefs": coefs_mean,
+                    "mask_dp": mask_dp,
+                    "show_fit_mask": False,
+                    "gaussian_filter_sigma": gaussian_filter_sigma,
+                    "maxfev": maxfev,
+                    "robust": robust,
+                    "robust_steps": robust_steps,
+                    "robust_thresh": robust_thresh,
+                    "verbose": False,
+                    "plot_result": False,
+                    "return_all_coef": True,
+                },
+            )
+            for rx in range(datacube.shape[0])
+            for ry in range(datacube.shape[1])
+        ]
+
+        num_jobs = cpu_count() // threads_per_job
+
+        with WorkerPool(
+            n_jobs=num_jobs,
+        ) as pool:
+            results = pool.map(
+                f,
+                inputs,
+                progress_bar=True,
+            )
+
+        for a0 in range(len(results)):
+            coefs_all[results[a0][0], results[a0][1]] = results[a0][2]
+
+    if return_all_coefs:
+        return coefs_all
+    else:
+        return coefs_all[:, :, :5]
 
 
 def plot_amorphous_ring(
