@@ -1121,6 +1121,8 @@ def plot_orientation_maps(
     corr_normalize: bool = True,
     show_legend: bool = True,
     scale_legend: bool = None,
+    legend_hist: bool = False,
+    scale_hist: float = 2,
     figsize: Union[list, tuple, np.ndarray] = (16, 5),
     figbound: Union[list, tuple, np.ndarray] = (0.01, 0.005),
     show_axes: bool = True,
@@ -1144,6 +1146,8 @@ def plot_orientation_maps(
         corr_normalize (bool):              If true, set mean correlation to 1.
         show_legend (bool):                 Show the legend
         scale_legend (float):               2 elements, x and y scaling of legend panel
+        legend_hist(bool):                  If True, adds histogram of detected orientations to legend
+        scale_hist (float):                 Amount to scale histogram values by
         figsize (array):                    2 elements defining figure size
         figbound (array):                   2 elements defining figure boundary
         show_axes (bool):                   Flag setting whether orienation map axes are visible.
@@ -1251,6 +1255,8 @@ def plot_orientation_maps(
         mask = (corr - corr_range[0]) / (corr_range[1] - corr_range[0])
         mask = np.clip(mask, 0, 1)
 
+    self.mask_corr = mask
+
     # Generate images
     for rx, ry in tqdmnd(
         orientation_map.num_x,
@@ -1289,11 +1295,14 @@ def plot_orientation_maps(
                 )
     basis_x = np.clip(basis_x, 0, 1)
     basis_z = np.clip(basis_z, 0, 1)
+    self.basis_z = basis_z
+    self.A = A
 
     # Convert to RGB images
     basis_x_max = np.max(basis_x, axis=2)
     sub = basis_x_max > 0
     basis_x_scale = basis_x * mask[:, :, None]
+    basis_x_scale_binary = basis_x * (mask > 0)[:, :, None]
     if self.pointgroup.get_crystal_system() == "monoclinic":
         rgb_x = (
             basis_x_scale[:, :, 0][:, :, None] * np.array((1, 1, 1))[None, None, :]
@@ -1307,6 +1316,8 @@ def plot_orientation_maps(
         for a0 in range(3):
             basis_x_scale[:, :, a0][sub] /= basis_x_max[sub]
             basis_x_scale[:, :, a0][np.logical_not(sub)] = 0
+            basis_x_scale_binary[:, :, a0][sub] /= basis_x_max[sub]
+            basis_x_scale_binary[:, :, a0][np.logical_not(sub)] = 0
         rgb_x = (
             basis_x_scale[:, :, 0][:, :, None] * color_basis[0, :][None, None, :]
             + basis_x_scale[:, :, 1][:, :, None] * color_basis[1, :][None, None, :]
@@ -1316,6 +1327,7 @@ def plot_orientation_maps(
     basis_z_max = np.max(basis_z, axis=2)
     sub = basis_z_max > 0
     basis_z_scale = basis_z * mask[:, :, None]
+    basis_z_scale_binary = basis_z * (mask > 0)[:, :, None]
     if self.pointgroup.get_crystal_system() == "monoclinic":
         rgb_z = (
             basis_z_scale[:, :, 0][:, :, None] * np.array((1, 1, 1))[None, None, :]
@@ -1329,6 +1341,8 @@ def plot_orientation_maps(
         for a0 in range(3):
             basis_z_scale[:, :, a0][sub] /= basis_z_max[sub]
             basis_z_scale[:, :, a0][np.logical_not(sub)] = 0
+            basis_z_scale_binary[:, :, a0][sub] /= basis_z_max[sub]
+            basis_z_scale_binary[:, :, a0][np.logical_not(sub)] = 0
         rgb_z = (
             basis_z_scale[:, :, 0][:, :, None] * color_basis[0, :][None, None, :]
             + basis_z_scale[:, :, 1][:, :, None] * color_basis[1, :][None, None, :]
@@ -1337,6 +1351,7 @@ def plot_orientation_maps(
 
     rgb_x = np.clip(rgb_x, 0, 1)
     rgb_z = np.clip(rgb_z, 0, 1)
+    self.basis_z_scale = basis_z_scale
 
     # if np.abs(self.cell[4] - 120.0) < 1e-6 or np.abs(self.cell[5] - 120.0) or np.abs(self.cell[6] - 120.0):
     #     label_0 = self.rational_ind(
@@ -1615,170 +1630,355 @@ def plot_orientation_maps(
 
     # Legend
     if show_legend:
-        ax_l.imshow(rgb_leg)
+        if legend_hist is True:
+            A = np.array([0, 0])
+            B = np.array([1, 0])
+            C = np.array([0.5, np.sqrt(3) / 2])
+            vertices = np.array([A, B, C])
+            ax_l.scatter(vertices[:, 0], vertices[:, 1], c=color_basis)
+            points = []
+            colors = []
 
-        # Add text labels
-        text_scale_pos = 0.1
-        text_params = {
-            "va": "center",
-            "family": "sans-serif",
-            "fontweight": "normal",
-            "color": "k",
-            "size": 12,
-        }
-        format_labels = "{0:.2g}"
+            for a0 in range(basis_z_scale.shape[0]):
+                for a1 in range(basis_z_scale.shape[1]):
+                    if mask[a0, a1] > 0:
+                        w = basis_z_scale_binary[a0, a1]
+                        rgb_z = (
+                            w * color_basis[0, :]
+                            + w * color_basis[1, :]
+                            + w * color_basis[2, :]
+                        )
+                        colors.append(rgb_z)
+                        w = w / np.sum(w)
+                        pt = w[0] * A + w[1] * B + w[2] * C
+                        points.append(pt)
 
-        bound = num_points * 0.25
-        shift = num_points * 0.10
-        if self.pointgroup.get_crystal_system() == "monoclinic":
-            p0 = np.array((1, 1)) * num_points
-            p1 = np.array((0, 1)) * num_points
-            p2 = np.array((1, 2)) * num_points
-            p3 = np.array((1, 0)) * num_points
+            points = np.asarray(points)
+            colors = np.asarray(colors)
+
+            points_and_colors = np.hstack([points, colors])
+            points_and_colors_unique, counts = np.unique(
+                points_and_colors, axis=0, return_counts=True
+            )
+
+            ax_l.scatter(
+                points_and_colors_unique[:, 0],
+                points_and_colors_unique[:, 1],
+                c=points_and_colors_unique[:, 2:],
+                s=counts * scale_hist,
+            )
+
+            v0 = self.orientation_zone_axis_range[0, :].copy()
+            v0 /= np.max(np.abs(v0))
+            v0 = np.round(v0, 2)
+
+            v1 = self.orientation_zone_axis_range[1, :].copy()
+            v1 /= np.max(np.abs(v1))
+            v1 = np.round(v1, 2)
+
+            v2 = self.orientation_zone_axis_range[2, :].copy()
+            v2 /= np.max(np.abs(v2))
+            v2 = np.round(v2, 2)
+
+            text_params = {
+                "va": "center",
+                "family": "sans-serif",
+                "fontweight": "normal",
+                "color": "k",
+                "size": 12,
+            }
+            shift = 0.15
+            ax_l.text(
+                A[0],
+                A[1] - shift,
+                v0,
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.text(
+                B[0],
+                B[1] - shift,
+                v1,
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.text(
+                C[0] + shift * 2,
+                C[1],
+                v2,
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.text(
+                C[0],
+                C[1] + 0.1,
+                "out-of-plane orientation",
+                ha="center",
+                **text_params,
+            )
+
+            A = np.array([0, 1.5])
+            B = np.array([1, 1.5])
+            C = np.array([0.5, np.sqrt(3) / 2 + 1.5])
+            vertices = np.array([A, B, C])
+            points = []
+            colors = []
+            ax_l.scatter(vertices[:, 0], vertices[:, 1], c=color_basis)
+
+            for a0 in range(basis_x_scale_binary.shape[0]):
+                for a1 in range(basis_x_scale_binary.shape[1]):
+                    if mask[a0, a1] > 0:
+                        w = basis_x_scale_binary[a0, a1]
+                        rgb_z = (
+                            w * color_basis[0, :]
+                            + w * color_basis[1, :]
+                            + w * color_basis[2, :]
+                        )
+                        colors.append(rgb_z)
+                        w = w / np.sum(w)
+                        pt = w[0] * A + w[1] * B + w[2] * C
+                        points.append(pt)
+
+            points = np.asarray(points)
+            colors = np.asarray(colors)
+
+            points_and_colors = np.hstack([points, colors])
+            points_and_colors_unique, counts = np.unique(
+                points_and_colors, axis=0, return_counts=True
+            )
+
+            ax_l.scatter(
+                points_and_colors_unique[:, 0],
+                points_and_colors_unique[:, 1],
+                c=points_and_colors_unique[:, 2:],
+                s=counts * scale_hist,
+            )
+
+            v0 = self.orientation_zone_axis_range[0, :].copy()
+            v0 /= np.max(np.abs(v0))
+            v0 = np.round(v0, 2)
+
+            v1 = self.orientation_zone_axis_range[1, :].copy()
+            v1 /= np.max(np.abs(v1))
+            v1 = np.round(v1, 2)
+
+            v2 = self.orientation_zone_axis_range[2, :].copy()
+            v2 /= np.max(np.abs(v2))
+            v2 = np.round(v2, 2)
+
+            text_params = {
+                "va": "center",
+                "family": "sans-serif",
+                "fontweight": "normal",
+                "color": "k",
+                "size": 12,
+            }
+            ax_l.text(
+                A[0],
+                A[1] - shift,
+                v0,
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.text(
+                B[0],
+                B[1] - shift,
+                v1,
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.text(
+                C[0] + shift * 2,
+                C[1],
+                v2,
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.text(
+                C[0],
+                C[1] + 0.1,
+                "in-plane orientation",
+                ha="center",
+                **text_params,
+            )
+
+            ax_l.set_aspect("equal")
+            ax_l.axis("off")
+
+            ax_l.set_xlim([-0.3, 1.3])
+            # ax_l.set_ylim([-0.3, C[1] + 0.3])
+
         else:
-            p0 = np.array((1, 0)) * num_points
-            p1 = np.array((1, 1)) * num_points
-            p2 = (
-                np.array((1 - np.cos(np.pi / 2 - tspan), np.sin(np.pi / 2 - tspan)))
-                * num_points
-            )
+            ax_l.imshow(rgb_leg)
 
-        if self.pointgroup.get_crystal_system() == "monoclinic":
-            v = np.double(self.orientation_zone_axis_range[0, :]).copy()
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p0[1],
-                p0[0] + shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
-            v = np.double(self.orientation_zone_axis_range[1, :]).copy()
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p1[1],
-                p1[0] - shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
-            v = np.double(self.orientation_zone_axis_range[2, :]).copy()
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p2[1],
-                p2[0] + shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
-            v = -1 * np.double(self.orientation_zone_axis_range[2, :].copy()) + 0
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p3[1],
-                p3[0] + shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
+            # Add text labels
+            text_scale_pos = 0.1
+            text_params = {
+                "va": "center",
+                "family": "sans-serif",
+                "fontweight": "normal",
+                "color": "k",
+                "size": 12,
+            }
+            format_labels = "{0:.2g}"
 
-        else:
-            v = self.orientation_zone_axis_range[0, :].copy()
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p0[1],
-                p0[0] + shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
-            v = self.orientation_zone_axis_range[1, :].copy()
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p1[1],
-                p1[0] + shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
-            v = self.orientation_zone_axis_range[2, :].copy()
-            v /= np.max(np.abs(v))
-            v = np.round(v, 2)
-            ax_l.text(
-                p2[1],
-                p2[0] - shift,
-                "["
-                + format_labels.format(v[0])
-                + " "
-                + format_labels.format(v[1])
-                + " "
-                + format_labels.format(v[2])
-                + "]",
-                None,
-                zorder=11,
-                ha="center",
-                **text_params,
-            )
+            bound = num_points * 0.25
+            shift = num_points * 0.10
+            if self.pointgroup.get_crystal_system() == "monoclinic":
+                p0 = np.array((1, 1)) * num_points
+                p1 = np.array((0, 1)) * num_points
+                p2 = np.array((1, 2)) * num_points
+                p3 = np.array((1, 0)) * num_points
+            else:
+                p0 = np.array((1, 0)) * num_points
+                p1 = np.array((1, 1)) * num_points
+                p2 = (
+                    np.array((1 - np.cos(np.pi / 2 - tspan), np.sin(np.pi / 2 - tspan)))
+                    * num_points
+                )
 
-        if self.pointgroup.get_crystal_system() == "monoclinic":
-            ax_l.set_xlim((-bound, num_points * 2 - 1 + bound))
-        else:
-            ax_l.set_xlim((-bound, num_points + bound))
-        ax_l.set_ylim((num_points + bound, -bound))
-        ax_l.axis("off")
+            if self.pointgroup.get_crystal_system() == "monoclinic":
+                v = np.double(self.orientation_zone_axis_range[0, :]).copy()
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p0[1],
+                    p0[0] + shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+                v = np.double(self.orientation_zone_axis_range[1, :]).copy()
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p1[1],
+                    p1[0] - shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+                v = np.double(self.orientation_zone_axis_range[2, :]).copy()
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p2[1],
+                    p2[0] + shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+                v = -1 * np.double(self.orientation_zone_axis_range[2, :].copy()) + 0
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p3[1],
+                    p3[0] + shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+                plt.tight_layout()
+            else:
+                v = self.orientation_zone_axis_range[0, :].copy()
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p0[1],
+                    p0[0] + shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+                v = self.orientation_zone_axis_range[1, :].copy()
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p1[1],
+                    p1[0] + shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+                v = self.orientation_zone_axis_range[2, :].copy()
+                v /= np.max(np.abs(v))
+                v = np.round(v, 2)
+                ax_l.text(
+                    p2[1],
+                    p2[0] - shift,
+                    "["
+                    + format_labels.format(v[0])
+                    + " "
+                    + format_labels.format(v[1])
+                    + " "
+                    + format_labels.format(v[2])
+                    + "]",
+                    None,
+                    zorder=11,
+                    ha="center",
+                    **text_params,
+                )
+
+            if self.pointgroup.get_crystal_system() == "monoclinic":
+                ax_l.set_xlim((-bound, num_points * 2 - 1 + bound))
+            else:
+                ax_l.set_xlim((-bound, num_points + bound))
+            ax_l.set_ylim((num_points + bound, -bound))
+            ax_l.axis("off")
 
         # if np.abs(self.cell[5] - 120.0) > 1e-6:
         #     ax_l.text(
