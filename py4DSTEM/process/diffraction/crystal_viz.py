@@ -1130,6 +1130,8 @@ def plot_orientation_maps(
     plot_limit=None,
     plot_layout=0,
     swap_axes_xy_limits=False,
+    crop_range=None,
+    figax=None,
     returnfig: bool = False,
     progress_bar=False,
 ):
@@ -1156,6 +1158,8 @@ def plot_orientation_maps(
         plot_layout (int):                  subplot layout: 0 - 1 row, 3 col
                                                             1 - 3 row, 1 col
         swap_axes_xy_limits (bool):         swap x and y boundaries for legend (not sure why we need this in some cases)
+        crop_range (4-tuple):               region to crop for making orientation maps
+        figax (matplotlib figure):          figure and axes for plotting (3 axes needed)
         returnfig (bool):                   set to True to return figure and axes handles
         progress_bar (bool):                Enable progressbar when calculating orientation images.
 
@@ -1573,26 +1577,35 @@ def plot_orientation_maps(
 
     # plotting frame
     # fig, ax = plt.subplots(1, 3, figsize=figsize)
-    fig = plt.figure(figsize=figsize)
-    if plot_layout == 0:
-        ax_x = fig.add_axes([0.0 + figbound[0], 0.0, 0.4 - 2 * +figbound[0], 1.0])
-        ax_z = fig.add_axes([0.4 + figbound[0], 0.0, 0.4 - 2 * +figbound[0], 1.0])
-        ax_l = fig.add_axes(
-            [0.8 + figbound[0], 0.0, 0.2 - 2 * +figbound[0], 1.0],
-            # projection="3d",
-            # elev=el,
-            # azim=az,
-        )
-    elif plot_layout == 1:
-        ax_x = fig.add_axes([0.0, 0.0 + figbound[0], 1.0, 0.4 - 2 * +figbound[0]])
-        ax_z = fig.add_axes([0.0, 0.4 + figbound[0], 1.0, 0.4 - 2 * +figbound[0]])
-        ax_l = fig.add_axes(
-            [0.0, 0.8 + figbound[0], 1.0, 0.2 - 2 * +figbound[0]],
-            # projection="3d",
-            # elev=el,
-            # azim=az,
-        )
+    if figax is None:
+        fig = plt.figure(figsize=figsize)
+        if plot_layout == 0:
+            ax_x = fig.add_axes([0.0 + figbound[0], 0.0, 0.4 - 2 * +figbound[0], 1.0])
+            ax_z = fig.add_axes([0.4 + figbound[0], 0.0, 0.4 - 2 * +figbound[0], 1.0])
+            ax_l = fig.add_axes(
+                [0.8 + figbound[0], 0.0, 0.2 - 2 * +figbound[0], 1.0],
+                # projection="3d",
+                # elev=el,
+                # azim=az,
+            )
+        elif plot_layout == 1:
+            ax_x = fig.add_axes([0.0, 0.0 + figbound[0], 1.0, 0.4 - 2 * +figbound[0]])
+            ax_z = fig.add_axes([0.0, 0.4 + figbound[0], 1.0, 0.4 - 2 * +figbound[0]])
+            ax_l = fig.add_axes(
+                [0.0, 0.8 + figbound[0], 1.0, 0.2 - 2 * +figbound[0]],
+                # projection="3d",
+                # elev=el,
+                # azim=az,
+            )
+    else:
+        fig = figax[0]
+        ax_x = figax[1]
+        ax_z = figax[2]
+        ax_l = figax[3]
 
+    if crop_range is not None:
+        rgb_x = rgb_x[crop_range[0] : crop_range[1], crop_range[2] : crop_range[3]]
+        rgb_z = rgb_z[crop_range[0] : crop_range[1], crop_range[2] : crop_range[3]]
     # orientation images
     if self.pymatgen_available:
         ax_x.imshow(rgb_x)
@@ -2199,7 +2212,7 @@ def plot_orientation_maps(
     #         **text_params,
     #     )
 
-    images_orientation = np.zeros((orientation_map.num_x, orientation_map.num_y, 3, 2))
+    images_orientation = np.zeros((rgb_x.shape[0], rgb_x.shape[1], 3, 2))
     if self.pymatgen_available:
         images_orientation[:, :, :, 0] = rgb_x
     images_orientation[:, :, :, 1] = rgb_z
