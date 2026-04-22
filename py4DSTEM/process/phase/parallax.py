@@ -328,6 +328,7 @@ class Parallax(PhaseReconstruction):
         clear_fft_cache: bool = None,
         max_batch_size: int = None,
         store_initial_arrays: bool = True,
+        min_stack_std: float = None,
         **kwargs,
     ):
         """
@@ -339,7 +340,7 @@ class Parallax(PhaseReconstruction):
             Number of pixels to blend image at the border
         dp_mask: np.ndarray, bool
             Bright-field pixels mask used for cross-correlation, boolean array same shape as DPs
-        threshold: float, optional
+        threshold_intensity: float, optional
             Fraction of max of dp_mean for bright-field pixels
         normalize_images: bool, optional
             If True, bright images normalized to have a mean of 1
@@ -375,6 +376,9 @@ class Parallax(PhaseReconstruction):
             Max number of virtual BF images to use at once in computing cross-correlation
         store_initial_arrays: bool, optional
             If True, stores a copy of the arrays necessary to reinitialize in reconstruct
+        min_stack_std: float, optional
+            If provided, only virtual BF images with standard deviation greater
+            than this value are included before normalization.
 
         Returns
         --------
@@ -536,6 +540,52 @@ class Parallax(PhaseReconstruction):
             (0, 1, 2),
             (1, 2, 0),
         )
+
+        # Optional virtual BF image filtering by per-image standard deviation
+        # before any normalization is applied.
+        if min_stack_std is not None:
+            if min_stack_std < 0:
+                raise ValueError("min_stack_std must be non-negative.")
+
+            stack_stds = xp.std(all_bfs, axis=(1, 2))
+            keep_mask = stack_stds > min_stack_std
+
+            num_before = self._num_bf_images
+            num_after = int(xp.count_nonzero(keep_mask))
+
+            if num_after == 0:
+                stds_np = asnumpy(stack_stds)
+                raise ValueError(
+                    (
+                        "No bright-field images passed the minimum std filter "
+                        f"(min_stack_std={min_stack_std}). "
+                        f"Observed std range was [{stds_np.min():.4g}, {stds_np.max():.4g}]."
+                    )
+                )
+
+            if num_after < num_before:
+                keep_mask_np = asnumpy(keep_mask).astype(bool)
+                all_bfs = all_bfs[keep_mask]
+
+                xy_inds_np = asnumpy(self._xy_inds)
+                self._xy_inds = xp.asarray(xy_inds_np[keep_mask_np])
+                self._num_bf_images = num_after
+
+                # Keep detector-mask-dependent utilities consistent with filtered stack
+                self._dp_mask = xp.zeros_like(self._dp_mask, dtype=bool)
+                self._dp_mask[self._xy_inds[:, 0], self._xy_inds[:, 1]] = True
+
+                self._kxy = self._kxy[keep_mask]
+                self._probe_angles = self._probe_angles[keep_mask]
+                self._kr = self._kr[keep_mask]
+
+                warnings.warn(
+                    (
+                        "Filtered virtual BF images using min_stack_std="
+                        f"{min_stack_std}: kept {num_after} of {num_before} images."
+                    ),
+                    UserWarning,
+                )
 
         # initialize
         stack_shape = (
@@ -1152,6 +1202,7 @@ class Parallax(PhaseReconstruction):
         device: str = None,
         clear_fft_cache: bool = None,
         max_batch_size: int = None,
+        fit_shifts_to_basis: bool = True,
         **kwargs,
     ):
         """
@@ -1173,7 +1224,8 @@ class Parallax(PhaseReconstruction):
         regularizer_matrix_size: Tuple[int,int], optional
             Bernstein basis degree used for regularizing shifts
         regularize_shifts: bool, optional
-            If True, the cross-correlated shifts are constrained to a spline interpolation
+            If True, and fit_shifts_to_basis=True, the cross-correlated shifts are
+            constrained to a spline interpolation.
         running_average: bool, optional
             If True, the bright field reference image is updated in a spiral from the origin
         progress_bar: bool, optional
@@ -1188,6 +1240,10 @@ class Parallax(PhaseReconstruction):
             if not none, overwrites self._device to set device preprocess will be perfomed on.
         max_batch_size: int, optional
             Max number of virtual BF images to use at once in computing cross-correlation
+        fit_shifts_to_basis: bool, optional
+            If True (default), measured shifts are projected onto the current
+            shift basis using least-squares. If False, raw cross-correlation
+            shifts are applied directly with no basis fitting.
         clear_fft_cache: bool, optional
             if true, and device = 'gpu', clears the cached fft plan at the end of function calls
 
@@ -1223,36 +1279,47 @@ class Parallax(PhaseReconstruction):
             else:
                 self.error_iterations = []
 
-        if not regularize_shifts:
-            self._basis = self._kxy
-        else:
-            kr_max = xp.max(self._kr)
-            u = self._kxy[:, 0] * 0.5 / kr_max + 0.5
-            v = self._kxy[:, 1] * 0.5 / kr_max + 0.5
-
-            self._basis = xp.zeros(
+        if regularize_shifts and not fit_shifts_to_basis:
+            warnings.warn(
                 (
-                    self._num_bf_images,
-                    (regularizer_matrix_size[0] + 1) * (regularizer_matrix_size[1] + 1),
+                    "regularize_shifts has no effect when fit_shifts_to_basis=False. "
+                    "Raw cross-correlation shifts will be applied directly."
                 ),
-                dtype=xp.float32,
+                UserWarning,
             )
-            for ii in np.arange(regularizer_matrix_size[0] + 1):
-                Bi = (
-                    comb(regularizer_matrix_size[0], ii)
-                    * (u**ii)
-                    * ((1 - u) ** (regularizer_matrix_size[0] - ii))
-                )
 
-                for jj in np.arange(regularizer_matrix_size[1] + 1):
-                    Bj = (
-                        comb(regularizer_matrix_size[1], jj)
-                        * (v**jj)
-                        * ((1 - v) ** (regularizer_matrix_size[1] - jj))
+        if fit_shifts_to_basis:
+            if not regularize_shifts:
+                self._basis = self._kxy
+            else:
+                kr_max = xp.max(self._kr)
+                u = self._kxy[:, 0] * 0.5 / kr_max + 0.5
+                v = self._kxy[:, 1] * 0.5 / kr_max + 0.5
+
+                self._basis = xp.zeros(
+                    (
+                        self._num_bf_images,
+                        (regularizer_matrix_size[0] + 1)
+                        * (regularizer_matrix_size[1] + 1),
+                    ),
+                    dtype=xp.float32,
+                )
+                for ii in np.arange(regularizer_matrix_size[0] + 1):
+                    Bi = (
+                        comb(regularizer_matrix_size[0], ii)
+                        * (u**ii)
+                        * ((1 - u) ** (regularizer_matrix_size[0] - ii))
                     )
 
-                    ind = ii * (regularizer_matrix_size[1] + 1) + jj
-                    self._basis[:, ind] = Bi * Bj
+                    for jj in np.arange(regularizer_matrix_size[1] + 1):
+                        Bj = (
+                            comb(regularizer_matrix_size[1], jj)
+                            * (v**jj)
+                            * ((1 - v) ** (regularizer_matrix_size[1] - jj))
+                        )
+
+                        ind = ii * (regularizer_matrix_size[1] + 1) + jj
+                        self._basis[:, ind] = Bi * Bj
 
         # Iterative binning for more robust alignment
         diameter_pixels = int(
@@ -1377,11 +1444,12 @@ class Parallax(PhaseReconstruction):
                 if running_average:
                     G_ref = G_ref * a1 / (a1 + 1) + (G * shift_op) / (a1 + 1)
 
-            # regularize the shifts
-            xy_shifts_new = self._xy_shifts + shifts_update
-            coefs = xp.linalg.lstsq(self._basis, xy_shifts_new, rcond=None)[0]
-            xy_shifts_fit = self._basis @ coefs
-            shifts_update = xy_shifts_fit - self._xy_shifts
+            if fit_shifts_to_basis:
+                # Optionally project measured shifts onto a low-dimensional basis
+                xy_shifts_new = self._xy_shifts + shifts_update
+                coefs = xp.linalg.lstsq(self._basis, xy_shifts_new, rcond=None)[0]
+                xy_shifts_fit = self._basis @ coefs
+                shifts_update = xy_shifts_fit - self._xy_shifts
 
             # apply shifts
             for start, end in generate_batches(
